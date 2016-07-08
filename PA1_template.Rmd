@@ -5,21 +5,162 @@ output:
     keep_md: true
 ---
 
+This document outlines the steps taken to read and process a set of 
+activity monitoring data.
 
-## Loading and preprocessing the data
+*Read In Data:*
 
+```{r readin}
+        actData<-read.csv("activity.csv")
+        
+        ##coerce dates to date type
+        actData$date<-as.Date(actData$date,"%Y-%m-%d")
 
+```
+Once the data has been read in we can undertake initial analysis of the data:
+```{r histday}
+                library(ggplot2)
+        
+        plotObj<-ggplot(actData,aes(date,steps)) + 
+                stat_summary(fun.y=sum, geom="bar") + labs(title
+                ="Steps by Day")
+        
+        print(plotObj)
+```
 
-## What is mean total number of steps taken per day?
+Mean & Median Steps per day calculated as follows
+```{r mean_med,results='asis'}
+   library(xtable)
+        
+       daymean<-tapply(actData$steps,actData$date,mean, na.rm=TRUE)
+       daymedian<-tapply(actData$steps,actData$date,median, na.rm=TRUE)
+       
+       df<-data.frame(mean_steps=daymean,median_steps=daymedian)
+       xt<-xtable(df)
+       print(xt, type="html")
+             
+```    
 
+Reviewing the number of steps per interval we have created the following plot
+```{r steps_int}
+        plotObj<-ggplot(actData,aes(interval,steps)) + 
+                stat_summary(fun.y=mean,geom="line") + labs(title
+                                                          ="Steps by Day")
+        
+        print(plotObj)
+        avestep<-tapply(actData$steps,actData$interval,mean,na.rm=TRUE)
+        maxInt<-max(avestep)
+        avestep[avestep==maxInt]
+```
+The maximum average number of steps in an interval is `r maxInt` in interval 835
 
+```{r no_NAs}
+   num_NAs<-sum(is.na(actData$steps))
+             
+```
 
-## What is the average daily activity pattern?
-
-
+The original dataset contains `r num_NAs` NA values.
 
 ## Imputing missing values
+I've decided to use the following strategy where the number of steps is missing
+- Where the mean number of steps per interval is available use this
+- otherwise use 0 - given a large number of these are liekly to be overnight
+with limited movement
+
+```{r impute}
+        library(plyr)
+        missingvals<-is.na(actData$steps)
+        no_missing<-nrow(actData[missingvals,])
+        
+        #generate lookup sequence
+        x<-seq(0,2355,5)
+        y<-rep(0,length(x))
+        df<-data.frame(interval=x,avesteps=y)
+        df2<-data.frame(interval=rownames(avestep),as=avestep)
+        df2$interval<-as.character(df2$interval)
+        df2$interval<-as.numeric(df2$interval)
+        df3<-join(df,df2)
+        df3$calcstep<-ifelse(is.na(df3$as),0,df3$as)
+        
+        actData2<-actData
+        actData2$date<-as.Date(actData2$date, "%Y-%m-%d")
+        actData2red<-actData[missingvals,]
+        actData2red$date<-as.Date(actData2red$date, "%Y-%m-%d")
+        
+        for (i in 1:no_missing) {
+                #get interval
+                reqint<-actData2red$interval[i]
+                
+                reqdate<-actData2red$date[i]
+                
+                #returnval
+                        actData2$steps[actData2$interval==reqint & actData2$date==reqdate]<-df3$calcstep[df3$interval==reqint]
+                }
+        
+        newNAs<-sum(is.na(actData2$steps))     
+```
+
+The number of NAs now present in the data is `r newNAs`
+
+The new data set now looks as follows:
+
+```{r histday2}
+                
+        plotObj<-ggplot(actData2,aes(date,steps)) + 
+                stat_summary(fun.y=sum,geom="bar") + labs(title
+                ="Steps by Day")
+        
+        print(plotObj)
+```
+
+The comparison to the previous mean and media values is shown in the resultant table
+
+```{r mean_med2,results='asis'}
+   library(xtable)
+        
+       daymean<-tapply(actData$steps,actData$date,mean, na.rm=TRUE)
+       newmean<-tapply(actData2$steps,actData2$date,mean, na.rm=TRUE)
+       mean.dif<-newmean-daymean
+       daymedian<-tapply(actData$steps,actData$date,median, na.rm=TRUE)
+       newmedian<-tapply(actData2$steps,actData2$date,median, na.rm=TRUE)
+       
+       
+       df4<-data.frame(mean_steps=daymean,new_mean=newmean,diff=mean.dif,
+                      median_steps=daymedian,new_median=newmedian)
+       xt<-xtable(df4)
+       print(xt, type="html")
+             
+``` 
+
+### Is there any difference between Weekend & Weekday activity profiles?
+
+First we need to create a factor indicating that the day is a weekend or week day:
+
+```{r weekday_factor}
+
+       actData2$wd<-weekdays(actData2$date)
+       wdclass<-grep("Saturday|Sunday",actData2$wd)
+       #wdclass
+       actData2$weekdayclass<-NA
+       actData2$weekdayclass[wdclass]<-"Weekend"
+       actData2$weekdayclass[is.na(actData2$weekdayclass)]<-"Weekday"
+        actData2$weekdayclass<-as.factor(actData2$weekdayclass)
+        #str(actData2)
 
 
+```
 
-## Are there differences in activity patterns between weekdays and weekends?
+Now create a panel plot to display the data
+
+```{r weekday panel}
+       plotObj<-ggplot(actData2,aes(interval,steps)) + 
+                stat_summary(fun.y=mean,geom="line") + labs(title
+                ="Steps by Day") + facet_grid(weekdayclass~.)
+        
+        print(plotObj) 
+        
+                
+```
+
+The plot shows that typically activity egins earlier and with a greater burst than
+at the weekend  
